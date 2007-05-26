@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 import sys, os
 
-version = '0.1'
+version = '0.2'
 
 index_fn = os.path.join(os.path.dirname(__file__), 'docs', 'index.txt')
 f = open(index_fn)
