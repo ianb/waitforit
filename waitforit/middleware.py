@@ -15,7 +15,7 @@ def make_id():
 
 class WaitForIt(object):
 
-    def __init__(self, app, time_limit, poll_time=10,
+    def __init__(self, app, time_limit=10, poll_time=10,
                  template=None):
         self.app = app
         self.time_limit = time_limit
@@ -126,7 +126,11 @@ class WaitForIt(object):
             start_response_data[:] = [status, headers, exc_info]
             return output.append
         app_iter = self.app(environ, start_response)
-        if not start_response_data:
+        if output:
+            # Stupid start_response writer...
+            output.extend(app_iter)
+            app_iter = output
+        elif not start_response_data:
             # Stupid out-of-order call...
             app_iter = list(app_iter)
             assert start_response_data
@@ -134,6 +138,7 @@ class WaitForIt(object):
         data[:] = start_response_data
         event.set()
 
+# TODO: handle case when there's no Javascript (it'd just refresh)
 
 TEMPLATE = '''\
 <html>

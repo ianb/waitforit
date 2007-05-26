@@ -1,0 +1,68 @@
+Wait For It
+===========
+
+Status And License
+------------------
+
+*Wait For It* is distributed under an `MIT-style license
+<license.html>`_.  It is by Ian Bicking.  Questions can go to the
+`Paste mailing list <http://pythonpaste.org/community/>`_; bugs can be
+reported in the `Paste Bug Tracker <http://trac.pythonpaste.org/>`_.
+
+What It Does
+------------
+
+Wait For It gives users a timely response even when the underlying
+WSGI application isn't very timely.  Wait For It does this by
+launching an extra thread for each incoming request.  If the wrapped
+application responds in a timely manner (before ``time_limit``) the
+response is simply passed on.
+
+If the response doesn't come back before the time limit, the user is
+given a response page that asks them to wait.  The response page
+contains Javascript that will re-check the status of the page, and
+when the page is ready it will reload the page.
+
+Applications can provide feedback to users by looking for
+``environ['waitforit.progress']`` and putting information in there.
+In particular ``"message"`` contains an HTML message for the user
+(e.g., if you want to show what step the long-running application is
+working on).  ``"percent"`` is used for a progress bar; it should be a
+number from 0 to 100.  The value in ``progress`` is sent via JSON, so
+you should use only strings (preferably unicode), integers, floats,
+dictionaries (with string keys) and lists.
+
+Using It
+--------
+
+Wrap you application like this::
+
+    from waitforit import WaitForIt
+    
+    fast_app = WaitForIt(slow_app, time_limit=5, poll_time=10)
+
+Then if ``slow_app`` takes longer than 5 seconds, a transition page is
+shown.  The transition page checks to see if the response is done
+every 10 seconds.  (The default values for both parameters is 10
+seconds.)
+
+Download & Installation
+-----------------------
+
+You can install with ``easy_install WaitForIt``.  You can also install
+the most recent code from trunk with ``easy_install WaitForIt==dev``.
+You can see the most recent code in `the svn repository
+<http://svn.pythonpaste.org/Paste/WaitForIt/trunk#egg=WaitForIt-dev>`_,
+or check it out like::
+
+    svn co http://svn.pythonpaste.org/Paste/WaitForIt/trunk WaitForIt
+
+Example
+-------
+
+To see a simple example, see `waitforit.testapp
+<waitforit/testapp.py.html>`_.  You can run it like ``python
+waitforit/testapp.py`` (or if you are using Python 2.5, ``python -m
+waitforit.testapp``).
+
+
