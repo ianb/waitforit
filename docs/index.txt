@@ -5,9 +5,10 @@ Status And License
 ------------------
 
 *Wait For It* is distributed under an `MIT-style license
-<license.html>`_.  It is by Ian Bicking.  Questions can go to the
-`Paste mailing list <http://pythonpaste.org/community/>`_; bugs can be
-reported in the `Paste Bug Tracker <http://trac.pythonpaste.org/>`_.
+<http://pythonpaste.org/waitforit/license.html>`_.  It is by Ian
+Bicking.  Questions can go to the `Paste mailing list
+<http://pythonpaste.org/community/>`_; bugs can be reported in the
+`Paste Bug Tracker <http://trac.pythonpaste.org/>`_.
 
 What It Does
 ------------
