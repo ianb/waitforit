@@ -1,10 +1,13 @@
 import threading
+import urllib
 from itertools import count
 import time
 import md5
-from paste.request import path_info_pop, construct_url, get_cookies
+from paste.request import path_info_pop, construct_url, get_cookies, parse_formvars
+from paste import httpexceptions
 from paste.util.template import Template
 import simplejson
+import re
 
 counter = count()
 
@@ -34,8 +37,19 @@ class WaitForIt(object):
             return self.check_status(environ, start_response)
         try:
             id = self.get_id(environ)
+            print 'Got id', id
             if id:
-                return self.send_wait_page(environ, start_response, id=id)
+                if id in self.pending:
+                    print 'good id', id
+                    return self.send_wait_page(environ, start_response, id=id)
+                else:
+                    print 'bad id', id
+                    # Bad id, remove it from QS:
+                    environ['QUERY_STRING'] = re.sub('waitforit_id=[a-f0-9]*', '', environ['QUERY_STRING'])
+                    # Then redirect:
+                    exc = httpexceptions.HTTPMovedPermanently(
+                        headers=[('Location', construct_url(environ))])
+                    return exc(environ, start_response)
         except KeyError:
             pass
         data = []
@@ -44,11 +58,15 @@ class WaitForIt(object):
         event = threading.Event()
         self.launch_application(environ, data, event, progress)
         event.wait(self.time_limit)
+        if not data and progress.get('synchronous'):
+            # The application has signaled that we should handle this
+            # request synchronously
+            event.wait()
         if not data:
             # Response hasn't come through in time
             id = make_id()
             self.pending[id] = [data, event, progress]
-            return self.send_wait_page(environ, start_response, id)
+            return self.start_wait_page(environ, start_response, id)
         else:
             # Response came through before time_limit
             return self.send_page(start_response, data)
@@ -56,10 +74,12 @@ class WaitForIt(object):
     def send_wait_page(self, environ, start_response, id=None):
         if id is None:
             id = self.get_id(environ)
+        self.get_id(environ)
         if self.pending[id][0]:
             # Response has come through
             # FIXME: delete cookie
             data, event, progress = self.pending.pop(id)
+            print 'Got send page:', data
             return self.send_page(start_response, data)
         request_url = construct_url(environ)
         waitforit_url = construct_url(environ, path_info='/.waitforit/')
@@ -79,20 +99,29 @@ class WaitForIt(object):
                         ])
         return [page]
 
+    def start_wait_page(self, environ, start_response, id):
+        url = construct_url(environ)
+        if '?' in url:
+            url += '&'
+        else:
+            url += '?'
+        url += 'waitforit_id=%s' % urllib.quote(id)
+        exc = httpexceptions.HTTPTemporaryRedirect(
+            headers=[('Location', url)])
+        return exc(environ, start_response)
+
     def send_page(self, start_response, data):
         status, headers, exc_info, app_iter = data
-        headers.append(
-            ('Set-Cookie', 'waitforit_id=""; expires="Thu, 2 Aug 2001 12:00:00 UTC"'))
         start_response(status, headers, exc_info)
         return app_iter
 
     def get_id(self, environ):
-        cookies = get_cookies(environ)
-        id = cookies['waitforit_id'].value
-        return id
+        qs = parse_formvars(environ)
+        return qs['waitforit_id']
 
     def check_status(self, environ, start_response, id=None):
-        assert environ['PATH_INFO'] == '/status.json'
+        assert environ['PATH_INFO'] == '/status.json', (
+            "Bad PATH_INFO=%r for %r" % (environ['PATH_INFO'], construct_url(environ)))
         if id is None:
             try:
                 id = self.get_id(environ)
@@ -102,7 +131,10 @@ class WaitForIt(object):
                     ('Content-type', 'text/plain'),
                     ('Content-length', str(len(body)))])
                 return [body]
-        data, event, progress = self.pending[id]
+        try:
+            data, event, progress = self.pending[id]
+        except KeyError:
+            data, event, progress = [True, None, None]
         if not data:
             result = {'done': False, 'progress': progress}
         else:
@@ -198,7 +230,16 @@ function checkStatus() {
             statusReceived(xhr);
         }
     };
-    xhr.open("GET", waitforit_url + "status.json");
+    if (waitforit_url.indexOf("?") != -1) {
+        var parts = waitforit_url.split("?");
+        var base = parts[0];
+        var qs = "?" + parts[1];
+    } else {
+        var base = waitforit_url;
+        var qs = '';
+    }
+    var status_url = base + "status.json" + qs;
+    xhr.open("GET", status_url);
     xhr.send(null);
 }
 
@@ -218,7 +259,7 @@ function statusReceived(req) {
         return;
     }
     if (status.done) {
-        window.location.reload();
+        window.location.href = window.location.href + "&send";
         return;
     }
     if (status.progress.message) {

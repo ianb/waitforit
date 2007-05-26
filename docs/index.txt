@@ -47,6 +47,28 @@ shown.  The transition page checks to see if the response is done
 every 10 seconds.  (The default values for both parameters is 10
 seconds.)
 
+In your application you can do::
+
+    def slow_app(environ, start_response):
+        progress = environ.get('waitforit.progress', {})
+        for i in range(100):
+            progress['message'] = 'I have completed %s out of 100 tasks' % i
+            progress['percent'] = i
+        ... handle response ...
+
+Also if some requests should be handled synchronously (even if they
+may be slow) you can indicate that with::
+
+    def slow_app(environ, start_response):
+        progress = environ.get('waitforit.progress', {})
+        if you_should_really_wait_for_this_to_return(environ):
+            progress['synchronous'] = True
+        ...
+
+That is, setting ``environ['waitforit.progress']['synchronous'] =
+True``, if done in a timely way, will keep WaitForIt from intercepting
+the request.
+
 Download & Installation
 -----------------------
 
