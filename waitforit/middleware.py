@@ -5,6 +5,7 @@ import time
 import md5
 from paste.request import path_info_pop, construct_url, get_cookies, parse_formvars
 from paste import httpexceptions
+from paste import httpheaders
 from paste.util.template import Template
 import simplejson
 import re
@@ -31,27 +32,32 @@ class WaitForIt(object):
         self.template = template
 
     def __call__(self, environ, start_response):
+        assert not environ['wsgi.multiprocess'], (
+            "WaitForIt does not work in a multiprocess environment")
         path_info = environ.get('PATH_INFO', '')
         if path_info.startswith('/.waitforit/'):
             path_info_pop(environ)
             return self.check_status(environ, start_response)
         try:
             id = self.get_id(environ)
-            print 'Got id', id
             if id:
                 if id in self.pending:
-                    print 'good id', id
                     return self.send_wait_page(environ, start_response, id=id)
                 else:
-                    print 'bad id', id
                     # Bad id, remove it from QS:
-                    environ['QUERY_STRING'] = re.sub('waitforit_id=[a-f0-9]*', '', environ['QUERY_STRING'])
+                    qs = environ['QUERY_STRING']
+                    qs = re.sub(r'&?waitforit_id=[a-f0-9]*', '', qs)
+                    qs = re.sub(r'&send$', '', qs)
+                    environ['QUERY_STRING'] = qs
                     # Then redirect:
                     exc = httpexceptions.HTTPMovedPermanently(
                         headers=[('Location', construct_url(environ))])
                     return exc(environ, start_response)
         except KeyError:
+            # Fresh request
             pass
+        if not self.accept_html(environ):
+            return self.app(environ, start_response)
         data = []
         progress = {}
         environ['waitforit.progress'] = progress
@@ -70,6 +76,18 @@ class WaitForIt(object):
         else:
             # Response came through before time_limit
             return self.send_page(start_response, data)
+
+    def accept_html(self, environ):
+        accept = httpheaders.ACCEPT.parse(environ)
+        if not accept:
+            return True
+        for arg in accept:
+            if ';' in arg:
+                arg = arg.split(';', 1)[0]
+            if arg in ('*/*', 'text/*', 'text/html', 'application/xhtml+xml',
+                       'application/xml', 'text/xml'):
+                return True
+        return False
     
     def send_wait_page(self, environ, start_response, id=None):
         if id is None:
@@ -79,7 +97,6 @@ class WaitForIt(object):
             # Response has come through
             # FIXME: delete cookie
             data, event, progress = self.pending.pop(id)
-            print 'Got send page:', data
             return self.send_page(start_response, data)
         request_url = construct_url(environ)
         waitforit_url = construct_url(environ, path_info='/.waitforit/')
