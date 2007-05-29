@@ -268,7 +268,12 @@ function statusReceived(req) {
         el.innerHTML = req.responseText;
         return;
     }
-    var status = eval("dummy="+req.responseText);
+    var text = req.responseText;
+    var m = text.match(/^\s*\/\*(.*)\*\/\s*$/);
+    if (m) {
+        text = m[1];
+    }
+    var status = eval("("+text+")");
     if (typeof status.done == "undefined") {
         // Something went wrong
         var el = document.getElementById("error-box");
