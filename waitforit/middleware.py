@@ -215,7 +215,7 @@ TEMPLATE = '''\
 
  <p id="percent-box">
 
- <p id="error-box">
+ <p id="error-box" style="display: none">
  </p>
  
  </body>
@@ -262,22 +262,37 @@ function checkStatus() {
 
 var percent_inner = null;
 
+function showError(message) {
+    var el = document.getElementById("error-box");
+    el.style.display = "";
+    el.innerHTML = message;
+}
+
 function statusReceived(req) {
     if (req.status != 200) {
-        var el = document.getElementById("error-box");
-        el.innerHTML = req.responseText;
+        showError(req.responseText);
         return;
     }
     var text = req.responseText;
-    var m = text.match(/^\s*\/\*(.*)\*\/\s*$/);
+    var m = text.match(/^\\s*\\/\\*(.*)\\*\\/\\s*$/);
     if (m) {
         text = m[1];
     }
-    var status = eval("("+text+")");
+    if (text.indexOf("<") == 0) {
+        // It is really markup, not JSON
+        var status = {};
+        var error = text;
+    } else {
+        try {
+            var status = eval("("+text+")");
+        } catch (e) {
+            var error = "<p>Error: "+e+"</p>\\n";
+            error += text;
+        }
+    }
     if (typeof status.done == "undefined") {
         // Something went wrong
-        var el = document.getElementById("error-box");
-        el.innerHTML = req.responseText;
+        showError(error || req.responseText);
         return;
     }
     if (status.done) {
@@ -317,6 +332,10 @@ div#percent-container {
 div#percent-inner {
   background-color: #999;
   height: 100%;
+}
+p#error-box {
+  border: 2px solid #f00;
+  background-color: #fdd;
 }
 '''
 
