@@ -268,6 +268,13 @@ function showError(message) {
     el.innerHTML = message;
 }
 
+function escapeHTML(text) {
+    text = text.replace("&", "&amp;");
+    text = text.replace("<", "&lt;");
+    text = text.replace('"', "&quot;");
+    return text;
+}
+
 function statusReceived(req) {
     if (req.status != 200) {
         showError(req.responseText);
@@ -287,7 +294,7 @@ function statusReceived(req) {
             var status = eval("("+text+")");
         } catch (e) {
             var error = "<p>Error: "+e+"</p>\\n";
-            error += text;
+            error += escapeHTML(text);
         }
     }
     if (typeof status.done == "undefined") {
