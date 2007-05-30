@@ -156,11 +156,12 @@ class WaitForIt(object):
             result = {'done': False, 'progress': progress}
         else:
             result = {'done': True}
+        content = simplejson.dumps(result)
         start_response('200 OK',
                        [('Content-Type', 'application/json'),
-                        ('Content-Length', str(len(result))),
+                        ('Content-Length', str(len(content))),
                         ])
-        return [simplejson.dumps(result)]
+        return [content]
 
     def launch_application(self, environ, data, event, progress):
         t = threading.Thread(target=self.run_application,
