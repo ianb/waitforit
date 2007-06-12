@@ -9,6 +9,7 @@ from paste import httpheaders
 from paste.util.template import Template
 import simplejson
 import re
+import sys
 
 counter = count()
 
@@ -129,6 +130,8 @@ class WaitForIt(object):
 
     def send_page(self, start_response, data):
         status, headers, exc_info, app_iter = data
+        if status is None and exc_info:
+            raise exc_info[0], exc_info[1], exc_info[2]
         start_response(status, headers, exc_info)
         return app_iter
 
@@ -164,10 +167,18 @@ class WaitForIt(object):
         return [content]
 
     def launch_application(self, environ, data, event, progress):
-        t = threading.Thread(target=self.run_application,
+        t = threading.Thread(target=self.run_application_caught,
                              args=(environ, data, event, progress))
         t.setDaemon(True)
         t.start()
+
+    def run_application_caught(self, environ, data, event, progress):
+        try:
+            return self.run_application(environ, data, event, progress)
+        except:
+            exc_info = sys.exc_info()
+            data[:] = [None, None, exc_info, None]
+            raise
 
     def run_application(self, environ, data, event, progress):
         start_response_data = []
