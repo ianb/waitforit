@@ -215,13 +215,16 @@ class WaitForIt(object):
                 if hasattr(app_iter, 'close'):
                     app_iter.close()
             app_iter = output
-        elif not start_response_data:
+        elif not start_response_data or hasattr(app_iter, 'close'):
             # Stupid out-of-order call...
+            # Or we want to make sure that app_iter.close() is called
+            # in the thread the app_iter was created in.
             try:
-                app_iter = list(app_iter)
+                new_app_iter = list(app_iter)
             finally:
                 if hasattr(app_iter, 'close'):
                     app_iter.close()
+            app_iter = new_app_iter
             assert start_response_data
         start_response_data.append(app_iter)
         data[:] = start_response_data
