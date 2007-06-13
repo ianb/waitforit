@@ -1,0 +1,12 @@
+WaitForIt
+=========
+
+0.3
+---
+
+* Add a `template_filename` option.
+
+* Separated the template out, allow you to pass in a message and some
+  CSS to the template.
+
+* Be more careful about calling ``app_iter.close()``

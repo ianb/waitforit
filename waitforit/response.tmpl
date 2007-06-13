@@ -1,0 +1,172 @@
+<html>
+ <head>
+  <title>Please wait</title>
+  <script type="text/javascript">
+
+waitforit_url = "{{waitforit_url}}";
+poll_time = {{poll_time}};
+
+/* End of the dynamic portions */
+
+function getXMLHttpRequest() {
+    /* Taken from MochiKit */
+    var tryThese = [
+        function () { return new XMLHttpRequest(); },
+        function () { return new ActiveXObject('Msxml2.XMLHTTP'); },
+        function () { return new ActiveXObject('Microsoft.XMLHTTP'); },
+        function () { return new ActiveXObject('Msxml2.XMLHTTP.4.0'); }
+        ];
+    for (var i = 0; i < tryThese.length; i++) {
+        var func = tryThese[i];
+        try {
+            return func();
+        } catch (e) {
+            // pass
+        }
+    }
+}
+
+function checkStatus() {
+    var xhr = getXMLHttpRequest();
+    xhr.onreadystatechange = function () {
+        if (xhr.readyState == 4) {
+            statusReceived(xhr);
+        }
+    };
+    if (waitforit_url.indexOf("?") != -1) {
+        var parts = waitforit_url.split("?");
+        var base = parts[0];
+        var qs = "?" + parts[1];
+    } else {
+        var base = waitforit_url;
+        var qs = '';
+    }
+    var status_url = base + "status.json" + qs;
+    xhr.open("GET", status_url);
+    xhr.send(null);
+}
+
+var percentInner = null;
+
+function showError(message) {
+    var el = document.getElementById("error-box");
+    el.style.display = "";
+    el.innerHTML = message;
+}
+
+function escapeHTML(text) {
+    text = text.replace("&", "&amp;");
+    text = text.replace("<", "&lt;");
+    text = text.replace('"', "&quot;");
+    return text;
+}
+
+function statusReceived(req) {
+    if (req.status != 200) {
+        showError(req.responseText);
+        return;
+    }
+    var text = req.responseText;
+    var m = text.match(/^\s*\/\*(.*)\*\/\s*$/);
+    if (m) {
+        text = m[1];
+    }
+    if (text.indexOf("<") == 0) {
+        // It is really markup, not JSON
+        var status = {};
+        var error = text;
+    } else {
+        try {
+            var status = eval("("+text+")");
+        } catch (e) {
+            var error = "<p>Error: "+e+"</p>\n";
+            error += escapeHTML(text);
+        }
+    }
+    if (typeof status.done == "undefined") {
+        // Something went wrong
+        showError(error || req.responseText);
+        return;
+    }
+    if (status.done) {
+        window.location.href = window.location.href + "&send";
+        return;
+    }
+    if (status.progress.message) {
+        var el = document.getElementById("progress-box");
+        el.innerHTML = status.progress.message;
+    }
+    if (status.progress.percent) {
+        if (! percentInner) {
+            var outer = document.createElement("div");
+            outer.setAttribute("id", "percent-container");
+            percentInner = document.createElement("div");
+            percentInner.setAttribute("id", "percent-inner");
+            //percentInner.innerHTML = "&nbsp;";
+            outer.appendChild(percentInner);
+            var parent = document.getElementById("percent-box");
+            parent.appendChild(outer);
+        }
+        percentInner.style.width = ""+Math.round(status.progress.percent) + "%";
+    }
+    setTimeout("checkStatus()", poll_time*1000);
+}
+
+  </script>
+  <style type="text/css">
+{{if not css}}
+
+body {
+  font-family: sans-serif;
+}
+div#percent-container {
+  border: 1px solid #000;
+  width: 100%;
+  height: 20px;
+}
+div#percent-inner {
+  background-color: #999;
+  height: 100%;
+}
+p#error-box {
+  border: 2px solid #f00;
+  background-color: #fdd;
+}
+
+{{else}}
+{{css}}
+{{endif}}
+
+{{if extra_css}}
+{{extra_css}}
+{{endif}}
+
+  </style>
+  {{if css_link}}
+  <link rel="stylesheet" href="{{css_link}}" type="text/css">
+  {endif}}
+ </head>
+ <body onload="checkStatus()">
+
+ {{if message}}
+   {{message | html}}
+ {{else}}
+   <h1>Please wait...</h1>
+
+   <p>
+     The page you have requested is taking a while to generate...
+   </p>
+
+ {{endif}}
+
+ <p id="progress-box">
+ </p>
+
+ <p id="percent-box">
+
+ <p id="error-box" style="display: none">
+ </p>
+ 
+ </body>
+</html>
+

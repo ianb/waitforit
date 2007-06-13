@@ -6,10 +6,11 @@ import md5
 from paste.request import path_info_pop, construct_url, get_cookies, parse_formvars
 from paste import httpexceptions
 from paste import httpheaders
-from paste.util.template import Template
+from paste.util.template import HTMLTemplate
 import simplejson
 import re
 import sys
+import os
 
 counter = count()
 
@@ -20,17 +21,33 @@ def make_id():
 
 class WaitForIt(object):
 
+    template_option_defaults = dict(
+        css=None,
+        extra_css=None,
+        message=None,
+        css_link=None,
+        )
+
     def __init__(self, app, time_limit=10, poll_time=10,
-                 template=None):
+                 template=None, template_filename=None,
+                 template_options=None):
         self.app = app
         self.time_limit = time_limit
         self.poll_time = poll_time
         self.pending = {}
-        if template is None:
-            template = TEMPLATE
+        if template and template_filename:
+            raise TypeError(
+                "You may not pass both a template and a template_filename argument")
+        if not template and not template_filename:
+            template_filename = os.path.join(os.path.dirname(__file__), 'response.tmpl')
+        if template_filename:
+            template = HTMLTemplate.from_filename(template_filename)
         if isinstance(template, basestring):
-            template = Template(template)
+            template = HTMLTemplate(template)
         self.template = template
+        if template_options is None:
+            template_options = {}
+        self.template_options = template_options
 
     def __call__(self, environ, start_response):
         assert not environ['wsgi.multiprocess'], (
@@ -101,13 +118,16 @@ class WaitForIt(object):
             return self.send_page(start_response, data)
         request_url = construct_url(environ)
         waitforit_url = construct_url(environ, path_info='/.waitforit/')
-        page = self.template.substitute(
+        vars = self.template_option_defaults.copy()
+        vars.update(self.template_options)
+        vars.update(dict(
             request_url=request_url,
             waitforit_url=waitforit_url,
             poll_time=self.poll_time,
             time_limit=self.time_limit,
             environ=environ,
-            id=id)
+            id=id))
+        page = self.template.substitute(vars)
         if isinstance(page, unicode):
             page = page.encode('utf8')
         start_response('200 OK',
@@ -189,174 +209,21 @@ class WaitForIt(object):
         app_iter = self.app(environ, start_response)
         if output:
             # Stupid start_response writer...
-            output.extend(app_iter)
+            try:
+                output.extend(app_iter)
+            finally:
+                if hasattr(app_iter, 'close'):
+                    app_iter.close()
             app_iter = output
         elif not start_response_data:
             # Stupid out-of-order call...
-            app_iter = list(app_iter)
+            try:
+                app_iter = list(app_iter)
+            finally:
+                if hasattr(app_iter, 'close'):
+                    app_iter.close()
             assert start_response_data
         start_response_data.append(app_iter)
         data[:] = start_response_data
         event.set()
 
-# TODO: handle case when there's no Javascript (it'd just refresh)
-
-TEMPLATE = '''\
-<html>
- <head>
-  <title>Please wait</title>
-  <script type="text/javascript">
-    waitforit_url = "{{waitforit_url}}";
-    poll_time = {{poll_time}};
-    <<JAVASCRIPT>>
-  </script>
-  <style type="text/css">
-    <<CSS>>
-  </style>
- </head>
- <body onload="checkStatus()">
-
- <h1>Please wait...</h1>
-
- <p>
-   The page you have requested is taking a while to generate...
- </p>
-
- <p id="progress-box">
- </p>
-
- <p id="percent-box">
-
- <p id="error-box" style="display: none">
- </p>
- 
- </body>
-</html>
-'''
-
-JAVASCRIPT = '''\
-function getXMLHttpRequest() {
-    var tryThese = [
-        function () { return new XMLHttpRequest(); },
-        function () { return new ActiveXObject('Msxml2.XMLHTTP'); },
-        function () { return new ActiveXObject('Microsoft.XMLHTTP'); },
-        function () { return new ActiveXObject('Msxml2.XMLHTTP.4.0'); }
-        ];
-    for (var i = 0; i < tryThese.length; i++) {
-        var func = tryThese[i];
-        try {
-            return func();
-        } catch (e) {
-            // pass
-        }
-    }
-}
-
-function checkStatus() {
-    var xhr = getXMLHttpRequest();
-    xhr.onreadystatechange = function () {
-        if (xhr.readyState == 4) {
-            statusReceived(xhr);
-        }
-    };
-    if (waitforit_url.indexOf("?") != -1) {
-        var parts = waitforit_url.split("?");
-        var base = parts[0];
-        var qs = "?" + parts[1];
-    } else {
-        var base = waitforit_url;
-        var qs = '';
-    }
-    var status_url = base + "status.json" + qs;
-    xhr.open("GET", status_url);
-    xhr.send(null);
-}
-
-var percent_inner = null;
-
-function showError(message) {
-    var el = document.getElementById("error-box");
-    el.style.display = "";
-    el.innerHTML = message;
-}
-
-function escapeHTML(text) {
-    text = text.replace("&", "&amp;");
-    text = text.replace("<", "&lt;");
-    text = text.replace('"', "&quot;");
-    return text;
-}
-
-function statusReceived(req) {
-    if (req.status != 200) {
-        showError(req.responseText);
-        return;
-    }
-    var text = req.responseText;
-    var m = text.match(/^\\s*\\/\\*(.*)\\*\\/\\s*$/);
-    if (m) {
-        text = m[1];
-    }
-    if (text.indexOf("<") == 0) {
-        // It is really markup, not JSON
-        var status = {};
-        var error = text;
-    } else {
-        try {
-            var status = eval("("+text+")");
-        } catch (e) {
-            var error = "<p>Error: "+e+"</p>\\n";
-            error += escapeHTML(text);
-        }
-    }
-    if (typeof status.done == "undefined") {
-        // Something went wrong
-        showError(error || req.responseText);
-        return;
-    }
-    if (status.done) {
-        window.location.href = window.location.href + "&send";
-        return;
-    }
-    if (status.progress.message) {
-        var el = document.getElementById("progress-box");
-        el.innerHTML = status.progress.message;
-    }
-    if (status.progress.percent) {
-        if (! percent_inner) {
-            var outer = document.createElement("div");
-            outer.setAttribute("id", "percent-container");
-            percent_inner = document.createElement("div");
-            percent_inner.setAttribute("id", "percent-inner");
-            //percent_inner.innerHTML = "&nbsp;";
-            outer.appendChild(percent_inner);
-            var parent = document.getElementById("percent-box");
-            parent.appendChild(outer);
-        }
-        percent_inner.style.width = ""+Math.round(status.progress.percent) + "%";
-    }
-    setTimeout("checkStatus()", poll_time*1000);
-}
-'''
-
-CSS = '''\
-body {
-  font-family: sans-serif;
-}
-div#percent-container {
-  border: 1px solid #000;
-  width: 100%;
-  height: 20px;
-}
-div#percent-inner {
-  background-color: #999;
-  height: 100%;
-}
-p#error-box {
-  border: 2px solid #f00;
-  background-color: #fdd;
-}
-'''
-
-TEMPLATE = TEMPLATE.replace('<<JAVASCRIPT>>', JAVASCRIPT);
-TEMPLATE = TEMPLATE.replace('<<CSS>>', CSS);
