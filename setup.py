@@ -29,9 +29,11 @@ setup(name='WaitForIt',
       include_package_data=True,
       zip_safe=False,
       install_requires=[
-          'PasteDeploy',
-          'Paste',
-          'simplejson',
+        'WebOb',
+        'simplejson',
+      ],
+      dependency_links=[
+        'http://svn.pythonpaste.org/Paste/WebOb/trunk#egg=WebOb-dev',
       ],
       entry_points="""
       [paste.filter_app_factory]

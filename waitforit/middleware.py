@@ -3,10 +3,9 @@ import urllib
 from itertools import count
 import time
 import md5
-from paste.request import path_info_pop, construct_url, get_cookies, parse_formvars
-from paste import httpexceptions
-from paste import httpheaders
-from paste.util.template import HTMLTemplate
+from webob import Request, Response
+from webob.exc import *
+from tempita import HTMLTemplate
 import simplejson
 import re
 import sys
@@ -52,33 +51,35 @@ class WaitForIt(object):
     def __call__(self, environ, start_response):
         assert not environ['wsgi.multiprocess'], (
             "WaitForIt does not work in a multiprocess environment")
-        path_info = environ.get('PATH_INFO', '')
-        if path_info.startswith('/.waitforit/'):
-            path_info_pop(environ)
-            return self.check_status(environ, start_response)
+        req = Request(environ)
+        if req.path_info.startswith('/.waitforit/'):
+            req.path_info_pop()
+            return self.check_status(req, start_response)
         try:
-            id = self.get_id(environ)
+            id = req.queryvars.get('waitforit_id')
             if id:
                 if id in self.pending:
-                    return self.send_wait_page(environ, start_response, id=id)
+                    return self.send_wait_page(req, start_response, id=id)
                 else:
                     # Bad id, remove it from QS:
-                    qs = environ['QUERY_STRING']
+                    qs = req.environ['QUERY_STRING']
                     qs = re.sub(r'&?waitforit_id=[a-f0-9]*', '', qs)
                     qs = re.sub(r'&send$', '', qs)
-                    environ['QUERY_STRING'] = qs
+                    req.environ['QUERY_STRING'] = qs
                     # Then redirect:
-                    exc = httpexceptions.HTTPMovedPermanently(
-                        headers=[('Location', construct_url(environ))])
+                    exc = HTTPMovedPermanently(location=req.url)
                     return exc(environ, start_response)
         except KeyError:
             # Fresh request
             pass
-        if not self.accept_html(environ):
+        
+        if not req.accept.accept_html():
+            # Can't catch requests anyway; probably a request for an
+            # image or something like that
             return self.app(environ, start_response)
         data = []
         progress = {}
-        environ['waitforit.progress'] = progress
+        req.environ['waitforit.progress'] = progress
         event = threading.Event()
         self.launch_application(environ, data, event, progress)
         event.wait(self.time_limit)
@@ -90,83 +91,64 @@ class WaitForIt(object):
             # Response hasn't come through in time
             id = make_id()
             self.pending[id] = [data, event, progress]
-            return self.start_wait_page(environ, start_response, id)
+            return self.start_wait_page(req, start_response, id)
         else:
             # Response came through before time_limit
             return self.send_page(start_response, data)
-
-    def accept_html(self, environ):
-        accept = httpheaders.ACCEPT.parse(environ)
-        if not accept:
-            return True
-        for arg in accept:
-            if ';' in arg:
-                arg = arg.split(';', 1)[0]
-            if arg in ('*/*', 'text/*', 'text/html', 'application/xhtml+xml',
-                       'application/xml', 'text/xml'):
-                return True
-        return False
     
-    def send_wait_page(self, environ, start_response, id=None):
+    def send_wait_page(self, req, start_response, id=None):
         if id is None:
-            id = self.get_id(environ)
-        self.get_id(environ)
+            id = req.queryvars['waitforit_id']
         if self.pending[id][0]:
             # Response has come through
-            # FIXME: delete cookie
             data, event, progress = self.pending.pop(id)
             return self.send_page(start_response, data)
-        request_url = construct_url(environ)
-        waitforit_url = construct_url(environ, path_info='/.waitforit/')
+        url = req.url
+        waitforit_url = req.application_url + '/.waitforit/?waitforit_id=%s' % id
         vars = self.template_option_defaults.copy()
         vars.update(self.template_options)
         vars.update(dict(
-            request_url=request_url,
+            request_url=url,
             waitforit_url=waitforit_url,
             poll_time=self.poll_time,
             time_limit=self.time_limit,
-            environ=environ,
+            environ=req.environ,
+            request=req,
             id=id))
         page = self.template.substitute(vars)
         if isinstance(page, unicode):
             page = page.encode('utf8')
-        start_response('200 OK',
-                       [('Content-Type', 'text/html; charset=utf8'),
-                        ('Content-Length', str(len(page))),
-                        ('Set-Cookie', 'waitforit_id=%s' % id),
-                        ])
-        return [page]
+        res = Response()
+        res.content_type = 'text/html'
+        res.charset = 'utf8'
+        res.body = page
+        return res(req.environ, start_response)
 
-    def start_wait_page(self, environ, start_response, id):
-        url = construct_url(environ)
+    def start_wait_page(self, req, start_response, id):
+        url = req.url
         if '?' in url:
             url += '&'
         else:
             url += '?'
         url += 'waitforit_id=%s' % urllib.quote(id)
-        exc = httpexceptions.HTTPTemporaryRedirect(
-            headers=[('Location', url)])
-        return exc(environ, start_response)
+        exc = HTTPTemporaryRedirect(location=url)
+        return exc(req.environ, start_response)
 
     def send_page(self, start_response, data):
-        status, headers, exc_info, app_iter = data
+        status, headers, app_iter, exc_info = data
         if status is None and exc_info:
             raise exc_info[0], exc_info[1], exc_info[2]
         start_response(status, headers, exc_info)
         return app_iter
 
-    def get_id(self, environ):
-        qs = parse_formvars(environ)
-        return qs['waitforit_id']
-
-    def check_status(self, environ, start_response, id=None):
-        assert environ['PATH_INFO'] == '/status.json', (
-            "Bad PATH_INFO=%r for %r" % (environ['PATH_INFO'], construct_url(environ)))
+    def check_status(self, req, start_response, id=None):
+        assert req.path_info == '/status.json', (
+            "Bad PATH_INFO=%r for %r" % (req.path_info, req.url))
         if id is None:
             try:
-                id = self.get_id(environ)
+                id = req.queryvars['waitforit_id']
             except KeyError:
-                body = "There is no pending request with the id %s" % id
+                body = "There is no pending request with the id %s" % (id or '(unknown)')
                 start_response('400 Bad Request', [
                     ('Content-type', 'text/plain'),
                     ('Content-length', str(len(body)))])
@@ -179,12 +161,11 @@ class WaitForIt(object):
             result = {'done': False, 'progress': progress}
         else:
             result = {'done': True}
-        content = simplejson.dumps(result)
-        start_response('200 OK',
-                       [('Content-Type', 'application/json'),
-                        ('Content-Length', str(len(content))),
-                        ])
-        return [content]
+        res = Response(
+            '200 OK',
+            body=simplejson.dumps(result),
+            content_type='application/json')
+        return res(req.environ, start_response)
 
     def launch_application(self, environ, data, event, progress):
         t = threading.Thread(target=self.run_application_caught,
@@ -201,32 +182,6 @@ class WaitForIt(object):
             raise
 
     def run_application(self, environ, data, event, progress):
-        start_response_data = []
-        output = []
-        def start_response(status, headers, exc_info=None):
-            start_response_data[:] = [status, headers, exc_info]
-            return output.append
-        app_iter = self.app(environ, start_response)
-        if output:
-            # Stupid start_response writer...
-            try:
-                output.extend(app_iter)
-            finally:
-                if hasattr(app_iter, 'close'):
-                    app_iter.close()
-            app_iter = output
-        elif not start_response_data or hasattr(app_iter, 'close'):
-            # Stupid out-of-order call...
-            # Or we want to make sure that app_iter.close() is called
-            # in the thread the app_iter was created in.
-            try:
-                new_app_iter = list(app_iter)
-            finally:
-                if hasattr(app_iter, 'close'):
-                    app_iter.close()
-            app_iter = new_app_iter
-            assert start_response_data
-        start_response_data.append(app_iter)
-        data[:] = start_response_data
+        data[:] = Request(environ).call_application(self.app, catch_exc_info=True)
         event.set()
 
