@@ -1,6 +1,12 @@
 Wait For It
 ===========
 
+.. toctree::
+   :maxdepth: 1
+
+   news
+   license
+
 Status And License
 ------------------
 
