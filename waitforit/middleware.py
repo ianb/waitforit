@@ -162,7 +162,7 @@ class WaitForIt(object):
         else:
             result = {'done': True}
         res = Response(
-            '200 OK',
+            status='200 OK',
             body=simplejson.dumps(result),
             content_type='application/json')
         return res(req.environ, start_response)
