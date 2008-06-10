@@ -31,9 +31,7 @@ setup(name='WaitForIt',
       install_requires=[
         'WebOb',
         'simplejson',
-      ],
-      dependency_links=[
-        'http://svn.pythonpaste.org/Paste/WebOb/trunk#egg=WebOb-dev',
+        'Tempita',
       ],
       entry_points="""
       [paste.filter_app_factory]
