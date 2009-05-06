@@ -56,7 +56,7 @@ class WaitForIt(object):
             req.path_info_pop()
             return self.check_status(req, start_response)
         try:
-            id = req.queryvars.get('waitforit_id')
+            id = req.GET.get('waitforit_id')
             if id:
                 if id in self.pending:
                     return self.send_wait_page(req, start_response, id=id)
@@ -98,7 +98,7 @@ class WaitForIt(object):
     
     def send_wait_page(self, req, start_response, id=None):
         if id is None:
-            id = req.queryvars['waitforit_id']
+            id = req.GET['waitforit_id']
         if self.pending[id][0]:
             # Response has come through
             data, event, progress = self.pending.pop(id)
@@ -146,7 +146,7 @@ class WaitForIt(object):
             "Bad PATH_INFO=%r for %r" % (req.path_info, req.url))
         if id is None:
             try:
-                id = req.queryvars['waitforit_id']
+                id = req.GET['waitforit_id']
             except KeyError:
                 body = "There is no pending request with the id %s" % (id or '(unknown)')
                 start_response('400 Bad Request', [
