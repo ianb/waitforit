@@ -96,7 +96,7 @@ function statusReceived(req) {
         var el = document.getElementById("progress-box");
         el.innerHTML = status.progress.message;
     }
-    if (status.progress.percent) {
+    if (status.progress.percent || status.progress.percent === 0) {
         if (! percentInner) {
             var outer = document.createElement("div");
             outer.setAttribute("id", "percent-container");
